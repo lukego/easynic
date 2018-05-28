@@ -11,55 +11,69 @@ Design goals:
 
 EasyNIC is inspired by the success of RISC-V.
 
-# Transmit
+# Transmit and Receive
 
-The host provides packets to the NIC in variable-size *blocks* that
-each contain a series of packets. Each packet is represented by a
-16-bit `LENGTH` field followed by `PAYLOAD` of the corresponding
-size. The end of the block is indicated with a `LENGTH` of zero.
+The host provides one buffer for transmit and one for receive. Packets
+are prefixed with a 16-bit length header and stored back-to-back. The
+buffers are [rings of bytes](https://en.wikipedia.org/wiki/Circular_buffer)
+i.e. they automatically wrap around once the last byte has been used. The
+buffers are treated as continuous and no space is used for alignment.
 
-Note: The Ethernet FCS is automatically calculated and appended.
+The host writes its updated cursor positions to the device via
+registers. The device writes its updated cursor positions to the host
+using DMA. (The host does not read the device state via registers
+because that would require a high-latency blocking read over PCIe.)
+
+Note: The Ethernet FCS is automatically added and removed by the
+device. If an incoming frame has an invalid FCS then it is
+automatically dropped.
 
 Registers:
 
-    TX_BLOCK_SEND [Write]:
+    TX_START [write]
+    RX_START [write]
 
-      Write the 64-bit address of a block and enqueue it for
-      transmission.
+      The address of the first byte of the buffer.
 
-      Multiple writes cause blocks to be transmitted in FIFO order.
+    TX_SIZE [write]
+    RX_SIZE [write]
 
-      This register must only be written when TX_BLOCK_AVAIL and
-      TX_READY read non-zero.
+      The total size of the buffer in bytes.
 
-    TX_BLOCK_AVAIL [Read]
+    TX_CURSOR [write]
+    RX_CURSOR [write]
 
-      Read how many more blocks can be enqueued at the current time.
+      The current buffer position from the host perspective i.e. the
+      offset from the start of the buffer at which the next packet
+      will be written (transmit) or read (receive).
 
-      The value is determined strictly as follows:
+    TXRX_STATUS [write]
 
-      - Initialized to a device-specific constant (e.g. 1024);
-      - Decreases by 1 when a new block is enqueued;
-      - Increases by 1 when a block completes.
+      The address where the device will store up-to-date hardware
+      transmit and receive cursor positions in host memory.
 
-      The host can poll this value to track which blocks have been
-      completed.
+      The device writes a 16-byte record to this address comprised of
+      the 64-bit transmit cursor followed by the 64-bit receive
+      cursor. The cursors specify the offsets from the start of the
+      buffer where the next packet will be fetched (transmit) and
+      stored (receive).
 
-      This register must only be read when TX_READY reads non-zero.
+      The device is expected to update this record as rapidly as
+      possible without compromising overall throughput.
 
-    TX_RESET [Write]
+    TXRX_RESET [write]
 
-      Write the value 1 to initiate an asynchronous reset of the device
-      transmit state. This potentially discards the contents of enqueued
-      blocks.
+      Write the value 1 to initiate an asynchronous reset of the
+      device transmit/receive state. This potentially discards the
+      contents of enqueued blocks.
 
-      Completion of the reset can be detected via TX_READY. Upon
-      completion the value of TX_BLOCK_AVAIL will have been reset to its
-      initial value.
+      Completion of the reset can be detected via TXRX_READY. Upon
+      completion the value of TX_BLOCK_AVAIL will have been reset to
+      its initial value.
 
-    TX_READY [Read]
+    TXRX_READY [read]
 
-      Read whether the device is ready to transmit data.
+      Read whether the device is ready to transmit and receive data.
 
       The value is determined strictly as follows:
 
