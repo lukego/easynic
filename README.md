@@ -11,7 +11,10 @@ Design goals:
 
 EasyNIC is inspired by the success of RISC-V.
 
-# Transmit and Receive
+# Streaming Transmit and Receive
+
+The EasyNIC "Streaming Transmit and Receive" interface provides bulk
+packet transfer between the host and the network. The interface is modeled on a serial port where a continuous stream of bytes is transferred. Framing markers to delimit packets are sent as in-band length prefixes.
 
 The host provides one buffer for transmit and one for receive. Packets
 are prefixed with a 16-bit length header and stored back-to-back. The
